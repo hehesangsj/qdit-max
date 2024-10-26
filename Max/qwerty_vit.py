@@ -164,7 +164,6 @@ def lienar_regression(X, Y, block_id=0):
 
     _write('block : {}      abs : {:.6f}      r2 : {:.3f}'.format(block_id, abs_loss, r2_score))
 
-    #输出W,b，以及r2_score, r2_score用来当作一个block是否启用初始化(或0初始化)的flag变量
     return W, b, r2_score
 
 @torch.no_grad()
