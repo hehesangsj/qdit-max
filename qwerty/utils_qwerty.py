@@ -1,5 +1,4 @@
 import torch
-import logging
 import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import Dataset
@@ -17,7 +16,7 @@ class FeatureDataset(Dataset):
     
 
 class CompensationBlock(nn.Module):
-    def __init__(self, W, b, r2_score, block, linear_init=True, local_rank=0, block_id=None):
+    def __init__(self, W, b, r2_score, block, linear_init=True, local_rank=0, block_id=None, logger=None):
         super(CompensationBlock, self).__init__()
         self.block = block
 
@@ -28,27 +27,27 @@ class CompensationBlock(nn.Module):
             self.lora_weight.data.copy_(W)
             self.lora_bias.data.copy_(b)
             if local_rank == 0:
-                logging('block {} using linear init'.format(block_id))
+                logger.info('block {} using linear init'.format(block_id))
         else:
             nn.init.zeros_(self.lora_weight)
             nn.init.zeros_(self.lora_bias)
             if local_rank == 0:
-                logging('block {} using lora init'.format(block_id))
+                logger.info('block {} using lora init'.format(block_id))
 
-    def forward(self, x):
-        out = self.block(x)
+    def forward(self, x, c):
+        out = self.block(x, c)
         out = out + x @ self.lora_weight + self.lora_bias
 
         return out
     
 
-def lienar_regression(X, Y, block_id=0):
+def lienar_regression(X, Y, block_id=0, logger=None):
     X = X.reshape(-1, X.size(-1))
 
     X_add_one = torch.cat([X, torch.ones(size=[X.size(0), ], device=X.device).reshape(-1, 1)], dim=-1)
     Y = Y.reshape(-1, Y.size(-1))
 
-    logging('the shape of X_add_one is {}, Y is {}'.format(X_add_one.size(), Y.size()))
+    logger.info('the shape of X_add_one is {}, Y is {}'.format(X_add_one.size(), Y.size()))
     X_add_one_T = X_add_one.t()
     W_overall = torch.inverse(X_add_one_T @ X_add_one) @ X_add_one_T @ Y
 
@@ -61,6 +60,6 @@ def lienar_regression(X, Y, block_id=0):
     ss_res = torch.sum((Y - Y_pred).pow(2))
     r2_score = 1 - ss_res / ss_tot
 
-    logging('block : {}      abs : {:.6f}      r2 : {:.3f}'.format(block_id, abs_loss, r2_score))
+    logger.info('block : {}      abs : {:.6f}      r2 : {:.3f}'.format(block_id, abs_loss, r2_score))
     return W, b, r2_score
 

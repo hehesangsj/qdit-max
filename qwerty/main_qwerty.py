@@ -6,7 +6,7 @@ from copy import deepcopy
 from tqdm import tqdm
 
 import sys
-sys.path.append('../')
+sys.path.append('/mnt/petrelfs/shaojie/code/Q-DiT')
 from qdit.modelutils import quantize_model, quantize_model_gptq,  add_act_quant_wrapper
 from qdit.datautils import get_loader
 from qwerty.distributed import init_distributed_mode
@@ -39,7 +39,7 @@ def generate_compensation_model(args):
     output_x = torch.zeros(size=[0,], device=device)
     output_c = torch.zeros(size=[0,], device=device)
 
-    logger.info(f"Training for {args.epochs} epochs...")
+    # logger.info(f"Training for {args.epochs} epochs...")
     sampler.set_epoch(0)
     for i, (x, y) in tqdm(enumerate(loader)):
         x = x.to(device)
@@ -96,9 +96,9 @@ def generate_compensation_model(args):
 
         assert torch.sum((output_x_previous - output_t_).abs()) < 1e-3
         
-        W, b, r2_score = lienar_regression(output_t_, output_full_precision - output_quant, block_id=block_id)
+        W, b, r2_score = lienar_regression(output_t_, output_full_precision - output_quant, block_id=block_id, logger=logger)
 
-        q_model.blocks[block_id] = CompensationBlock(W=W, b=b, r2_score=r2_score, block=q_model.blocks[block_id], linear_init=True if block_id >= args.start_block else False, local_rank=args.local_rank, block_id=block_id)
+        q_model.blocks[block_id] = CompensationBlock(W=W, b=b, r2_score=r2_score, block=q_model.blocks[block_id], linear_init=True if block_id >= args.start_block else False, local_rank=rank, block_id=block_id, logger=logger)
         q_model.cuda()
         qwerty_block = q_model.blocks[block_id]
 
