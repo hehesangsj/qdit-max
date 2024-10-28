@@ -49,7 +49,9 @@ def lienar_regression(X, Y, block_id=0, logger=None):
 
     logger.info('the shape of X_add_one is {}, Y is {}'.format(X_add_one.size(), Y.size()))
     X_add_one_T = X_add_one.t()
-    W_overall = torch.inverse(X_add_one_T @ X_add_one) @ X_add_one_T @ Y
+    # W_overall = torch.inverse(X_add_one_T @ X_add_one) @ X_add_one_T @ Y 
+    # W_overall = torch.pinverse(X_add_one_T @ X_add_one) @ X_add_one_T @ Y 
+    W_overall = torch.linalg.lstsq(X_add_one.cpu(), Y.cpu()).solution.cuda()
 
     W = W_overall[:-1, :]
     b = W_overall[-1, :]

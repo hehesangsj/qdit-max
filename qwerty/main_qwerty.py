@@ -14,7 +14,8 @@ from qwerty.utils_qdit import parse_option, init_data, init_env, init_model, sav
 from qwerty.utils_qwerty import FeatureDataset, lienar_regression, CompensationBlock
 from qwerty.utils_traineval import dit_generator, sample
 
-LINEAR_COMPENSATION_SAMPLES = 512
+LINEAR_COMPENSATION_SAMPLES = 2048
+# LINEAR_COMPENSATION_SAMPLES = 512
 
 @torch.no_grad()
 def generate_compensation_model(args):
