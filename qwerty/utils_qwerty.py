@@ -2,6 +2,19 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import Dataset
+import torch.distributed as dist
+
+def gather_tensor_from_multi_processes(input, world_size):
+    if world_size == 1:
+        return input
+    torch.cuda.synchronize()
+    gathered_tensors = [torch.zeros_like(input) for _ in range(world_size)]
+    dist.all_gather(gathered_tensors, input)
+    gathered_tensors = torch.cat(gathered_tensors, dim=0)
+    torch.cuda.synchronize()
+
+    return gathered_tensors
+
 
 class FeatureDataset(Dataset):
     def __init__(self, X, Y):

@@ -33,7 +33,8 @@ def create_npz_from_sample_folder(sample_dir, num=50_000):
 
 
 def sample(args, model_pq, vae, diffusion, sample_folder_dir):
-    n = args.per_proc_batch_size
+    n = args.batch_size
+    # n = args.per_proc_batch_size
     global_batch_size = n * dist.get_world_size()
     rank = dist.get_rank()
     device = rank % torch.cuda.device_count()
@@ -65,10 +66,12 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
             y_null = torch.tensor([1000] * n, device=device)
             y = torch.cat([y, y_null], 0)
             model_kwargs = dict(y=y, cfg_scale=args.cfg_scale)
-            sample_fn = model_pq.forward_with_cfg
+            sample_fn = model_pq
+            # sample_fn = model_pq.forward_with_cfg
         else:
             model_kwargs = dict(y=y)
-            sample_fn = model_pq.forward
+            sample_fn = model_pq
+            # sample_fn = model_pq.forward
 
         # Sample images:
         samples = diffusion.p_sample_loop(

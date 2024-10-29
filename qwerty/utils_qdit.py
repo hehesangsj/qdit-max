@@ -86,7 +86,7 @@ def init_model(args, device):
     ckpt_path = args.ckpt or f"DiT-XL-2-{args.image_size}x{args.image_size}.pt"
     state_dict = find_model(ckpt_path)
     model.load_state_dict(state_dict)
-    diffusion = create_diffusion(timestep_respacing="")
+    diffusion = create_diffusion(timestep_respacing=str(args.num_sampling_steps))
     vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
 
     return model, state_dict, diffusion, vae
@@ -244,6 +244,7 @@ def parse_option():
     parser.add_argument("--num-fid-samples", type=int, default=50_000)
     # qwerty
     parser.add_argument('--start_block', default=0, type=int)
+    parser.add_argument("--qwerty-ckpt", type=str, default=None)
 
     args = parser.parse_args()
 

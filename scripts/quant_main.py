@@ -209,8 +209,7 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = args.tf32  # True: fast but may lead to some small numerical differences
     torch.set_grad_enabled(False)
     validate_model(args, model, diffusion, vae)
-    
-    # sample_fid(args, model, diffusion, vae)
+    sample_fid(args, model, diffusion, vae)
 
 def create_argparser():
     parser = argparse.ArgumentParser()
