@@ -14,13 +14,13 @@ from qwerty.utils_qdit import parse_option, init_data, init_env, init_model, sav
 from qwerty.utils_qwerty import FeatureDataset, lienar_regression, CompensationBlock
 from qwerty.utils_traineval import dit_generator, sample
 
-LINEAR_COMPENSATION_SAMPLES = 4096
-# LINEAR_COMPENSATION_SAMPLES = 512
+# LINEAR_COMPENSATION_SAMPLES = 4096
+LINEAR_COMPENSATION_SAMPLES = 512
 
 @torch.no_grad()
 def generate_compensation_model(args):
     init_distributed_mode(args)
-    rank, device, logger, experiment_dir = init_env(args)
+    rank, device, logger, experiment_dir = init_env(args, dir='008-DiT-XL-2')
     checkpoint_dir = f"{experiment_dir}/checkpoints" 
     model, state_dict, diffusion, vae = init_model(args, device)
     loader, sampler = init_data(args, rank, logger)
@@ -110,7 +110,12 @@ def generate_compensation_model(args):
 
             assert torch.sum((output_x_previous - output_t_).abs()) < 1e-3
             
-            W, b, r2_score = lienar_regression(output_t_, output_full_precision - output_quant, block_id=block_id, logger=logger)
+            if block_id < args.start_block:
+                W = torch.zeros((1152, 1152))
+                b = torch.zeros(1152)
+                r2_score = -1
+            else:
+                W, b, r2_score = lienar_regression(output_t_, output_full_precision - output_quant, block_id=block_id, logger=logger)
 
             q_model.blocks[block_id] = CompensationBlock(W=W, b=b, r2_score=r2_score, block=q_model.blocks[block_id], linear_init=True if block_id >= args.start_block else False, local_rank=rank, block_id=block_id, logger=logger)
             q_model.cuda()
@@ -135,9 +140,10 @@ def generate_compensation_model(args):
                 if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size // args.world_size - 1):
                     break
 
-            quant_error = torch.cat(quant_error).mean()
-            qwerty_error = torch.cat(qwerty_error).mean()
-            logger.info(f"Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
+            quant_error = torch.Tensor(quant_error).mean()
+            qwerty_error = torch.Tensor(qwerty_error).mean()
+            logger.info(f"[{block_id}/{len(q_model.blocks)}] Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
+
         save_ckpt(q_model, args, checkpoint_dir, logger)
     
     mode = args.mode

@@ -22,7 +22,7 @@
                 "--mode", "sample", "--results-dir", "results/debug",  
                 "--wbits", "4", "--abits", "8", "--act_group_size", "128", "--weight_group_size", "128", "--use_gptq",
                 "--quant_method", "max", "--calib_data_path", "/mnt/petrelfs/shaojie/code/Q-DiT/cali_data/cali_data_256.pth",
-                "--qwerty-ckpt", "results/qwerty/002-DiT-XL-2/checkpoints/ckpt.pt",
+                // "--qwerty-ckpt", "results/qwerty/002-DiT-XL-2/checkpoints/ckpt.pt",
                 "--num-fid-samples", "10000", "--num-sampling-steps", "50", "--cfg-scale", "1.5", "--image-size", "256", "--seed", "0"
             ]
         },

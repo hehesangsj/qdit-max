@@ -19,7 +19,7 @@ else
     NODES=$((GPUS / GPUS_PER_NODE))
 fi
 
-# SRUN_ARGS=${SRUN_ARGS:-" --jobid=3722476"} # 3768157 3768158 3789766 -w HOST-10-140-66-41  3636795
+# SRUN_ARGS=${SRUN_ARGS:-" --jobid=3722475"} # 3768157 3768158 3789766 -w HOST-10-140-66-41  3636795
 
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export MASTER_PORT=32425
@@ -30,8 +30,9 @@ QUANT_FLAGS="--wbits 4 --abits 8 \
             --quant_method max \
             --calib_data_path ./cali_data/cali_data_256.pth"
 SAMPLE_FLAGS="--batch-size 1 --num-fid-samples 10000 --num-sampling-steps 50 --cfg-scale 1.5 --image-size 256 --seed 0"
-EVAL_FLAGS="pretrained_models/VIRTUAL_imagenet256_labeled.npz results/qwerty/006-DiT-XL-2/DiT-XL-2-DiT-XL-2-256x256-size-256-vae-mse-cfg-1.5-seed-0.npz"
-QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode gen --results-dir results/qwerty --start_block 27"
+EVAL_FLAGS="pretrained_models/VIRTUAL_imagenet256_labeled.npz results/qwerty/008-DiT-XL-2/DiT-XL-2-DiT-XL-2-256x256-size-256-vae-mse-cfg-1.5-seed-0.npz"
+QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode sample --results-dir results/qwerty --start_block 27
+--qwerty-ckpt results/qwerty/008-DiT-XL-2/checkpoints/ckpt.pt"
 
 export PYTHONUNBUFFERED=1
 
