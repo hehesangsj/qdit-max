@@ -31,7 +31,7 @@ QUANT_FLAGS="--wbits 4 --abits 8 \
             --calib_data_path ./cali_data/cali_data_256.pth"
 SAMPLE_FLAGS="--batch-size 1 --num-fid-samples 10000 --num-sampling-steps 50 --cfg-scale 1.5 --image-size 256 --seed 0"
 EVAL_FLAGS="pretrained_models/VIRTUAL_imagenet256_labeled.npz results/qwerty/006-DiT-XL-2/DiT-XL-2-DiT-XL-2-256x256-size-256-vae-mse-cfg-1.5-seed-0.npz"
-QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode sample --results-dir results/qwerty"
+QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode gen --results-dir results/qwerty --start_block 27"
 
 export PYTHONUNBUFFERED=1
 
