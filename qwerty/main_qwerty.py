@@ -14,13 +14,13 @@ from qwerty.utils_qdit import parse_option, init_data, init_env, init_model, sav
 from qwerty.utils_qwerty import FeatureDataset, lienar_regression, CompensationBlock
 from qwerty.utils_traineval import dit_generator, sample
 
-LINEAR_COMPENSATION_SAMPLES = 2048
+LINEAR_COMPENSATION_SAMPLES = 4096
 # LINEAR_COMPENSATION_SAMPLES = 512
 
 @torch.no_grad()
 def generate_compensation_model(args):
     init_distributed_mode(args)
-    rank, device, logger, experiment_dir = init_env(args, dir='002-DiT-XL-2')
+    rank, device, logger, experiment_dir = init_env(args)
     checkpoint_dir = f"{experiment_dir}/checkpoints" 
     model, state_dict, diffusion, vae = init_model(args, device)
     loader, sampler = init_data(args, rank, logger)
@@ -59,6 +59,7 @@ def generate_compensation_model(args):
             y = y.to(device)
             with torch.no_grad():
                 x = vae.encode(x).latent_dist.sample().mul_(0.18215)
+            # t = torch.randint(0, 1, (x.shape[0],), device=device)
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
 
             noise = torch.randn_like(x)
@@ -122,6 +123,12 @@ def generate_compensation_model(args):
 
                 previous_out = qwerty_block(x_out, c_out)
                 output_x_previous = torch.cat([output_x_previous, previous_out.detach()], dim=0)
+
+                quant_out = block_q(x_out, c_out)
+                full_precision_out = block_origin(x_out, c_out)
+                quant_error = (quant_out - full_precision_out).abs().mean()
+                qwerty_error = (previous_out - full_precision_out).abs().mean()
+                logger.info(f"Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
 
                 torch.cuda.synchronize()
                 if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size // args.world_size - 1):

@@ -26,9 +26,10 @@ export MASTER_PORT=32424
 
 
 QUANT_FLAGS="--wbits 4 --abits 8 \
-            --act_group_size 128 --weight_group_size 128 --use_gptq \
+            --act_group_size 128 --weight_group_size 128 \
             --quant_method max \
             --calib_data_path ../cali_data/cali_data_256.pth"
+            # --use_gptq \
 SAMPLE_FLAGS="--batch-size 1 --num-fid-samples 10000 --num-sampling-steps 50 --cfg-scale 1.5 --image-size 256 --seed 0 --results-dir ../results/gptq"
 export PYTHONUNBUFFERED=1
 
@@ -42,4 +43,5 @@ srun -p ${PARTITION} \
   --kill-on-bad-exit=1 \
   --quotatype=${QUOTA_TYPE} \
   ${SRUN_ARGS} \
-  python -u quant_main.py $QUANT_FLAGS $SAMPLE_FLAGS
+  python evaluator.py pretrained_models/VIRTUAL_imagenet256_labeled.npz results/gptq/001-qdit_w4a8/DiT-XL-2-pretrained-size-256-vae-mse-cfg-1.5-seed-0.npz
+#   python -u quant_main.py $QUANT_FLAGS $SAMPLE_FLAGS

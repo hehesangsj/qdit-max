@@ -1,5 +1,6 @@
 import os
 import math
+import random
 import torch
 from tqdm import tqdm
 import numpy as np
@@ -33,6 +34,11 @@ def create_npz_from_sample_folder(sample_dir, num=50_000):
 
 
 def sample(args, model_pq, vae, diffusion, sample_folder_dir):
+    seed = dist.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
     n = args.batch_size
     # n = args.per_proc_batch_size
     global_batch_size = n * dist.get_world_size()
