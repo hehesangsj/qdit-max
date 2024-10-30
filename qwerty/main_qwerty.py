@@ -117,6 +117,8 @@ def generate_compensation_model(args):
             qwerty_block = q_model.blocks[block_id]
 
             output_x_previous = torch.zeros(size=[0, ], device=device)
+            quant_error = []
+            qwerty_error = []
             for i, (x_out, c_out) in tqdm(enumerate(feature_loader)):
                 x_out = x_out.cuda()
                 c_out = c_out.cuda()
@@ -126,13 +128,16 @@ def generate_compensation_model(args):
 
                 quant_out = block_q(x_out, c_out)
                 full_precision_out = block_origin(x_out, c_out)
-                quant_error = (quant_out - full_precision_out).abs().mean()
-                qwerty_error = (previous_out - full_precision_out).abs().mean()
-                logger.info(f"Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
+                quant_error.append((quant_out - full_precision_out).abs().mean())
+                qwerty_error.append((previous_out - full_precision_out).abs().mean())
 
                 torch.cuda.synchronize()
                 if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size // args.world_size - 1):
                     break
+
+            quant_error = torch.cat(quant_error).mean()
+            qwerty_error = torch.cat(qwerty_error).mean()
+            logger.info(f"Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
         save_ckpt(q_model, args, checkpoint_dir, logger)
     
     mode = args.mode
