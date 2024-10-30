@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 import sys
 sys.path.append('/mnt/petrelfs/shaojie/code/Q-DiT')
+from diffusion import create_diffusion
 from qdit.modelutils import quantize_model, quantize_model_gptq,  add_act_quant_wrapper
 from qdit.datautils import get_loader
 from qwerty.distributed import init_distributed_mode
@@ -20,10 +21,11 @@ LINEAR_COMPENSATION_SAMPLES = 512
 @torch.no_grad()
 def generate_compensation_model(args):
     init_distributed_mode(args)
-    rank, device, logger, experiment_dir = init_env(args)
-    # rank, device, logger, experiment_dir = init_env(args, dir='008-DiT-XL-2')
+    # rank, device, logger, experiment_dir = init_env(args)
+    rank, device, logger, experiment_dir = init_env(args, dir='011-DiT-XL-2')
     checkpoint_dir = f"{experiment_dir}/checkpoints" 
     model, state_dict, diffusion, vae = init_model(args, device)
+    diffusion_qwerty = create_diffusion(timestep_respacing="") 
     loader, sampler = init_data(args, rank, logger)
 
     model.eval()
@@ -40,7 +42,6 @@ def generate_compensation_model(args):
     else:
         gptq_dataloader = get_loader(args.calib_data_path, nsamples=256)
     q_model = quantize_model_gptq(q_model, device=device, args=args, dataloader=gptq_dataloader)
-
 
     if args.qwerty_ckpt:
         for block_id in range(len(q_model.blocks)):
@@ -60,10 +61,10 @@ def generate_compensation_model(args):
             y = y.to(device)
             with torch.no_grad():
                 x = vae.encode(x).latent_dist.sample().mul_(0.18215)
-            t = torch.randint(0, 1, (x.shape[0],), device=device)
-            # t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
+            # t = torch.randint(999, 1000, (x.shape[0],), device=device)
+            t = torch.randint(0, diffusion_qwerty.num_timesteps, (x.shape[0],), device=device)
             noise = torch.randn_like(x)
-            x_t = diffusion.q_sample(x, t, noise=noise)
+            x_t = diffusion_qwerty.q_sample(x, t, noise=noise)
             x_t = model.x_embedder(x_t) + model.pos_embed
             t = model.t_embedder(t)
             y = model.y_embedder(y, False)

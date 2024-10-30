@@ -46,9 +46,9 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
     device = rank % torch.cuda.device_count()
     latent_size = args.image_size // 8
     using_cfg = args.cfg_scale > 1.0
-    if rank == 0:
-        os.makedirs(sample_folder_dir, exist_ok=True)
-        print(f"Saving .png samples at {sample_folder_dir}")
+    # if rank == 0:
+    os.makedirs(sample_folder_dir, exist_ok=True)
+    print(f"Saving .png samples at {sample_folder_dir}")
 
     # To make things evenly-divisible, we'll sample a bit more than we need and then discard the extra samples:
     total_samples = int(math.ceil(args.num_fid_samples / global_batch_size) * global_batch_size)

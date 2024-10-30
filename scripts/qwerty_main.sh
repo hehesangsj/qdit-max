@@ -30,9 +30,9 @@ QUANT_FLAGS="--wbits 4 --abits 8 \
             --quant_method max \
             --calib_data_path ./cali_data/cali_data_256.pth"
 SAMPLE_FLAGS="--batch-size 1 --num-fid-samples 10000 --num-sampling-steps 50 --cfg-scale 1.5 --image-size 256 --seed 0"
-EVAL_FLAGS="pretrained_models/VIRTUAL_imagenet256_labeled.npz results/qwerty/008-DiT-XL-2/DiT-XL-2-DiT-XL-2-256x256-size-256-vae-mse-cfg-1.5-seed-0.npz"
-QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode sample --results-dir results/qwerty --start_block 27
---qwerty-ckpt results/qwerty/008-DiT-XL-2/checkpoints/ckpt.pt"
+EVAL_FLAGS="pretrained_models/VIRTUAL_imagenet256_labeled.npz results/qwerty/009-DiT-XL-2/DiT-XL-2-DiT-XL-2-256x256-size-256-vae-mse-cfg-1.5-seed-0.npz"
+QWERTY_FLAGS="--image-size 256 --ckpt pretrained_models/DiT-XL-2-256x256.pt --mode gen --results-dir results/qwerty --start_block 0"
+# --qwerty-ckpt results/qwerty/010-DiT-XL-2/checkpoints/ckpt.pt"
 
 export PYTHONUNBUFFERED=1
 
@@ -46,5 +46,7 @@ srun -p ${PARTITION} \
   --kill-on-bad-exit=1 \
   --quotatype=${QUOTA_TYPE} \
   ${SRUN_ARGS} \
-  python evaluator.py $EVAL_FLAGS
-  # python qwerty/main_qwerty.py $QUANT_FLAGS $SAMPLE_FLAGS $QWERTY_FLAGS
+  python qwerty/main_qwerty.py $QUANT_FLAGS $SAMPLE_FLAGS $QWERTY_FLAGS
+#   python evaluator.py $EVAL_FLAGS
+
+
