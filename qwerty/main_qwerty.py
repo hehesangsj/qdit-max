@@ -20,7 +20,8 @@ LINEAR_COMPENSATION_SAMPLES = 512
 @torch.no_grad()
 def generate_compensation_model(args):
     init_distributed_mode(args)
-    rank, device, logger, experiment_dir = init_env(args, dir='008-DiT-XL-2')
+    rank, device, logger, experiment_dir = init_env(args)
+    # rank, device, logger, experiment_dir = init_env(args, dir='008-DiT-XL-2')
     checkpoint_dir = f"{experiment_dir}/checkpoints" 
     model, state_dict, diffusion, vae = init_model(args, device)
     loader, sampler = init_data(args, rank, logger)
@@ -59,12 +60,10 @@ def generate_compensation_model(args):
             y = y.to(device)
             with torch.no_grad():
                 x = vae.encode(x).latent_dist.sample().mul_(0.18215)
-            # t = torch.randint(0, 1, (x.shape[0],), device=device)
-            t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
-
+            t = torch.randint(0, 1, (x.shape[0],), device=device)
+            # t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             noise = torch.randn_like(x)
             x_t = diffusion.q_sample(x, t, noise=noise)
-
             x_t = model.x_embedder(x_t) + model.pos_embed
             t = model.t_embedder(t)
             y = model.y_embedder(y, False)
@@ -72,13 +71,11 @@ def generate_compensation_model(args):
 
             output_x = torch.cat([output_x, x_t.detach()], dim=0)
             output_c = torch.cat([output_c, c.detach()], dim=0)
-
             if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size // args.world_size - 1):
                 break
         
         feature_set = FeatureDataset(output_x.detach().cpu(), output_c.detach().cpu())
         feature_loader = torch.utils.data.DataLoader(feature_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-
         output_x_previous = output_x
         output_c_previous = output_c
 
@@ -86,7 +83,6 @@ def generate_compensation_model(args):
 
             feature_set.X = output_x_previous.detach().cpu()
             feature_set.Y = output_c_previous.detach().cpu()
-
             block_q = q_model.blocks[block_id]
             block_origin = model.blocks[block_id]
             output_full_precision = torch.zeros(size=[0, ], device=device)
@@ -96,20 +92,16 @@ def generate_compensation_model(args):
             for i, (x_out, c_out) in tqdm(enumerate(feature_loader)):
                 x_out = x_out.cuda()
                 c_out = c_out.cuda()
-
                 full_precision_out = block_origin(x_out, c_out)
                 quant_out = block_q(x_out, c_out)
-
                 output_t_ = torch.cat([output_t_, x_out.detach()], dim=0)
                 output_full_precision = torch.cat([output_full_precision, full_precision_out.detach()], dim=0)
                 output_quant = torch.cat([output_quant, quant_out.detach()], dim=0)
-
                 torch.cuda.synchronize()
                 if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size  // args.world_size - 1):
                     break
 
             assert torch.sum((output_x_previous - output_t_).abs()) < 1e-3
-            
             if block_id < args.start_block:
                 W = torch.zeros((1152, 1152))
                 b = torch.zeros(1152)
@@ -127,19 +119,15 @@ def generate_compensation_model(args):
             for i, (x_out, c_out) in tqdm(enumerate(feature_loader)):
                 x_out = x_out.cuda()
                 c_out = c_out.cuda()
-
                 previous_out = qwerty_block(x_out, c_out)
                 output_x_previous = torch.cat([output_x_previous, previous_out.detach()], dim=0)
-
                 quant_out = block_q(x_out, c_out)
                 full_precision_out = block_origin(x_out, c_out)
                 quant_error.append((quant_out - full_precision_out).abs().mean())
                 qwerty_error.append((previous_out - full_precision_out).abs().mean())
-
                 torch.cuda.synchronize()
                 if i >= (LINEAR_COMPENSATION_SAMPLES // args.batch_size // args.world_size - 1):
                     break
-
             quant_error = torch.Tensor(quant_error).mean()
             qwerty_error = torch.Tensor(qwerty_error).mean()
             logger.info(f"[{block_id}/{len(q_model.blocks)}] Quantization error: {quant_error.item():.4f}; Qwerty error (L1 distance): {qwerty_error.item():.4f}")
