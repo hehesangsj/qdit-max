@@ -13,7 +13,7 @@ from qdit.datautils import get_loader
 from qwerty.distributed import init_distributed_mode
 from qwerty.utils_qdit import parse_option, init_data, init_env, init_model, save_ckpt
 from qwerty.utils_qwerty import FeatureDataset, lienar_regression, CompensationBlock
-from qwerty.utils_traineval import dit_generator, sample
+from qwerty.utils_traineval import dit_generator, sample, sample_fid
 
 # LINEAR_COMPENSATION_SAMPLES = 4096
 LINEAR_COMPENSATION_SAMPLES = 512
@@ -22,13 +22,14 @@ LINEAR_COMPENSATION_SAMPLES = 512
 def generate_compensation_model(args):
     init_distributed_mode(args)
     # rank, device, logger, experiment_dir = init_env(args)
-    rank, device, logger, experiment_dir = init_env(args, dir='011-DiT-XL-2')
+    rank, device, logger, experiment_dir = init_env(args, dir='014-DiT-XL-2')
     checkpoint_dir = f"{experiment_dir}/checkpoints" 
     model, state_dict, diffusion, vae = init_model(args, device)
     diffusion_qwerty = create_diffusion(timestep_respacing="") 
     loader, sampler = init_data(args, rank, logger)
 
     model.eval()
+    model.cuda()
 
     args.weight_group_size = eval(args.weight_group_size)
     args.act_group_size = eval(args.act_group_size)
@@ -42,6 +43,8 @@ def generate_compensation_model(args):
     else:
         gptq_dataloader = get_loader(args.calib_data_path, nsamples=256)
     q_model = quantize_model_gptq(q_model, device=device, args=args, dataloader=gptq_dataloader)
+    q_model_qdit = deepcopy(q_model).cuda()
+    q_model_qdit.eval()
 
     if args.qwerty_ckpt:
         for block_id in range(len(q_model.blocks)):
@@ -61,8 +64,8 @@ def generate_compensation_model(args):
             y = y.to(device)
             with torch.no_grad():
                 x = vae.encode(x).latent_dist.sample().mul_(0.18215)
-            # t = torch.randint(999, 1000, (x.shape[0],), device=device)
-            t = torch.randint(0, diffusion_qwerty.num_timesteps, (x.shape[0],), device=device)
+            t = torch.randint(0, 1, (x.shape[0],), device=device)
+            # t = torch.randint(0, diffusion_qwerty.num_timesteps, (x.shape[0],), device=device)
             noise = torch.randn_like(x)
             x_t = diffusion_qwerty.q_sample(x, t, noise=noise)
             x_t = model.x_embedder(x_t) + model.pos_embed
@@ -141,15 +144,19 @@ def generate_compensation_model(args):
         model_string_name = args.model.replace("/", "-")
         ckpt_string_name = os.path.basename(args.ckpt).replace(".pt", "") if args.ckpt else "pretrained"
         folder_name = f"{model_string_name}-{ckpt_string_name}-size-{args.image_size}-vae-{args.vae}-" \
-                    f"cfg-{args.cfg_scale}-seed-{args.global_seed}"
+                    f"cfg-{args.cfg_scale}-seed-{args.global_seed}-new"
         sample_folder_dir = f"{experiment_dir}/{folder_name}"
-        sample(args, q_model, vae, diffusion, sample_folder_dir)
+        sample_fid(args, q_model, vae, diffusion, sample_folder_dir)
+        # sample(args, q_model, vae, diffusion, sample_folder_dir)
     
     elif mode == "gen":
         q_model.eval()
+        q_model.cuda()
         latent_size = args.image_size // 8
-        diffusion_gen = dit_generator('250', latent_size=latent_size, device=device)
-        diffusion_gen.forward_val(vae, model.forward, q_model.forward, cfg=False, name=f"{experiment_dir}/gen", logger=logger)
+        diffusion_gen = dit_generator('50', latent_size=latent_size, device=device)
+        if not os.path.exists(f"{experiment_dir}/gen"):
+            os.makedirs(f"{experiment_dir}/gen")
+        diffusion_gen.forward_val(vae, [model.forward_with_cfg, q_model_qdit.forward_with_cfg, q_model.forward_with_cfg], cfg=True, name=f"{experiment_dir}/gen", logger=logger, args=args)
     
     logger.info("Done!")
     return q_model

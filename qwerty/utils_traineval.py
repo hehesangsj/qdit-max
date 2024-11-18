@@ -8,7 +8,9 @@ import torch.distributed as dist
 from PIL import Image
 from time import time
 import matplotlib.pyplot as plt
+from pytorch_lightning import seed_everything
 from torchvision.utils import save_image
+from torch.cuda.amp import autocast
 
 from diffusion.gaussian_diffusion import _extract_into_tensor
 import diffusion.gaussian_diffusion as gd
@@ -39,8 +41,8 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
     np.random.seed(seed)
     random.seed(seed)
 
-    n = args.batch_size
-    # n = args.per_proc_batch_size
+    # n = args.batch_size
+    n = args.per_proc_batch_size
     global_batch_size = n * dist.get_world_size()
     rank = dist.get_rank()
     device = rank % torch.cuda.device_count()
@@ -104,6 +106,58 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
     dist.destroy_process_group()
 
 
+def sample_fid(args, model, vae, diffusion, sample_folder_dir):
+    # Create folder to save samples:
+    seed_everything(args.seed)
+    device = next(model.parameters()).device
+    using_cfg = args.cfg_scale > 1.0
+    os.makedirs(sample_folder_dir, exist_ok=True)
+    print(f"Saving .png samples at {sample_folder_dir}")
+
+    # Figure out how many samples we need to generate on each GPU and how many iterations we need to run:
+    n = args.batch_size
+    # To make things evenly-divisible, we'll sample a bit more than we need and then discard the extra samples:
+    total_samples = int(math.ceil(args.num_fid_samples / n) * n)
+    print(f"Total number of images that will be sampled: {total_samples}")
+    iterations = int(total_samples // n)
+    pbar = range(iterations)
+    pbar = tqdm(pbar)
+    total = 0
+    for _ in pbar:
+        # Sample inputs:
+        z = torch.randn(n, model.in_channels, model.input_size, model.input_size, device=device)
+        y = torch.randint(0, args.num_classes, (n,), device=device)
+
+        # Setup classifier-free guidance:
+        if using_cfg:
+            z = torch.cat([z, z], 0)
+            y_null = torch.tensor([1000] * n, device=device)
+            y = torch.cat([y, y_null], 0)
+            model_kwargs = dict(y=y, cfg_scale=args.cfg_scale)
+        else:
+            model_kwargs = dict(y=y)
+
+        z = z.half()
+        with autocast():
+            samples = diffusion.ddim_sample_loop(
+                model, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
+            )
+        if using_cfg:
+            samples, _ = samples.chunk(2, dim=0)  # Remove null class samples
+
+        samples = vae.decode(samples / 0.18215).sample
+        samples = torch.clamp(127.5 * samples + 128.0, 0, 255).permute(0, 2, 3, 1).to("cpu", dtype=torch.uint8).numpy()
+
+        # Save samples to disk as individual .png files
+        for i, sample in enumerate(samples):
+            index = i + total
+            Image.fromarray(sample).save(f"{sample_folder_dir}/{index:06d}.png")
+        total += n
+
+    create_npz_from_sample_folder(sample_folder_dir, args.num_fid_samples)
+    print("Done.")
+
+
 class dit_generator:
     def __init__(self, timestep_respacing, latent_size, device):
         # create_diffusion
@@ -152,59 +206,33 @@ class dit_generator:
         alphas = 1.0 - betas
         self.alphas_cumprod = np.cumprod(alphas, axis=0)
 
-    def forward_val(self, vae, model, model_pq, cfg=False, name="sample_pq", save=True, args=None, logger=None):
-        # sample
-        class_labels = [207, 360, 387, 974, 88, 979, 417, 279]
+    def forward_val(self, vae, models, cfg=False, name="sample_pq", args=None, logger=None):
+        class_labels = [500, 501, 502, 503, 504, 505, 506, 507]
+        # class_labels = [random.randint(0, 1000) for _ in range(8)]
         z, model_kwargs = self.pre_process(class_labels, cfg=cfg, args=args)
 
-        # p_sample_loop_progressive
-        img = z
-        img_pq = z
+        imgs = [z.clone() for _ in models]
         indices = list(range(self.num_timesteps))[::-1]
         indices_tqdm = tqdm(indices)
-        mse_loss = []
+
         for i in indices_tqdm:
             t = torch.tensor([i] * z.shape[0], device=self.device)
             with torch.no_grad():
-                # SpacedDiffusion
                 map_tensor = torch.tensor(self.timestep_map, device=t.device, dtype=t.dtype)
                 new_ts = map_tensor[t]
-                # p_mean_variance
-                model_output = model(img, new_ts, **model_kwargs)
-                model_output_pq = model_pq(img_pq, new_ts, **model_kwargs)
+                model_outputs = []
+                for model, img in zip(models, imgs):
+                    model_output = model(img, new_ts, **model_kwargs)
+                    model_outputs.append(model_output)
+                imgs = self.post_process(t, imgs, model_outputs)
 
-                # model_output, feat = model(img, new_ts, **model_kwargs, distill=True)
-                # model_output_pq, feat_pq = model_pq(img_pq, new_ts, **model_kwargs, distill=True)
+        samples = [vae.decode(img / 0.18215).sample for img in imgs]
+        for idx, sample in enumerate(samples):
+            sample, _ = sample.chunk(2, dim=0)
+            save_image(sample, f"{name}/model_{idx}.png", nrow=4, normalize=True, value_range=(-1, 1))
+            logger.info(f"Model {idx} sample saved as {name}_model_{idx}.png")
 
-                img, img_pq = self.post_process(t, img, img_pq, model_output, model_output_pq)
-
-                mse_loss.append(torch.mean((model_output - model_output_pq) ** 2).cpu().numpy())
-
-                if save:
-                    with open('mse_and_mav.csv', 'a') as file:
-                        file.write(f"{i},{torch.mean((model_output - model_output_pq) ** 2)},{model_output.abs().mean()}\n")                    
-
-        samples = img    
-        samples, _ = samples.chunk(2, dim=0)  # Remove null class samples
-        samples = vae.decode(samples / 0.18215).sample
-
-        samples_pq = img_pq
-        samples_pq, _ = samples_pq.chunk(2, dim=0)  # Remove null class samples
-        samples_pq = vae.decode(samples_pq / 0.18215).sample
-
-        if save:
-            plt.figure(figsize=(10, 5))
-            plt.plot(indices[::-1], mse_loss, label='MSE Loss')
-            plt.xlabel('Time Step')
-            plt.ylabel('MSE Loss')
-            plt.title('MSE Loss Over Time Steps')
-            plt.legend()
-            plt.grid(True)
-            plt.savefig('mse_loss_over_time_steps.png')
-                    
-            save_image(samples, name+'.png', nrow=4, normalize=True, value_range=(-1, 1))
-            save_image(samples_pq, name+'_compress.png', nrow=4, normalize=True, value_range=(-1, 1))
-            logger.info(f"Original saved as {name}.png, compressed saved as {name}_compress.png")
+        return samples
 
     def pre_process(self, class_labels, cfg=False, args=None):
         n = len(class_labels)
@@ -219,34 +247,22 @@ class dit_generator:
             model_kwargs = dict(y=y)
         return z, model_kwargs
 
-
-    def post_process(self, t, img, img_pq, model_output, model_output_pq):
-        # p_mean_variance
-        B, C = img.shape[:2]
-        model_output, model_var_values = torch.split(model_output, C, dim=1)
-        min_log = _extract_into_tensor(self.posterior_log_variance_clipped, t, img.shape)
-        max_log = _extract_into_tensor(np.log(self.betas), t, img.shape)
-        frac = (model_var_values + 1) / 2
-        model_log_variance = frac * max_log + (1 - frac) * min_log
-        pred_xstart = self._predict_xstart_from_eps(x_t=img, t=t, eps=model_output)
-        model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=img, t=t)
-
-        model_output_pq, model_var_values_pq = torch.split(model_output_pq, C, dim=1)
-        frac_pq = (model_var_values_pq + 1) / 2
-        model_log_variance_pq = frac_pq * max_log + (1 - frac_pq) * min_log
-        pred_xstart_pq = self._predict_xstart_from_eps(x_t=img_pq, t=t, eps=model_output_pq)
-        model_mean_pq, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart_pq, x_t=img_pq, t=t)
-
-        # p_sample
-        noise = torch.randn_like(img)
-        nonzero_mask = (
-            (t != 0).float().view(-1, *([1] * (len(img.shape) - 1)))
-        )  # no noise when t == 0
-        sample = model_mean + nonzero_mask * torch.exp(0.5 * model_log_variance) * noise
-        sample_pq = model_mean_pq + nonzero_mask * torch.exp(0.5 * model_log_variance_pq) * noise
-
-        return sample, sample_pq
-    
+    def post_process(self, t, imgs, model_outputs):
+        B, C = imgs[0].shape[:2]
+        samples = []
+        min_log = _extract_into_tensor(self.posterior_log_variance_clipped, t, imgs[0].shape)
+        max_log = _extract_into_tensor(np.log(self.betas), t, imgs[0].shape)
+        noise = torch.randn_like(imgs[0])
+        for img, model_output in zip(imgs, model_outputs):
+            model_output_split, model_var_values = torch.split(model_output, C, dim=1)
+            frac = (model_var_values + 1) / 2
+            model_log_variance = frac * max_log + (1 - frac) * min_log
+            pred_xstart = self._predict_xstart_from_eps(x_t=img, t=t, eps=model_output_split)
+            model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=img, t=t)
+            nonzero_mask = (t != 0).float().view(-1, *([1] * (len(img.shape) - 1)))  # no noise when t == 0
+            sample = model_mean + nonzero_mask * torch.exp(0.5 * model_log_variance) * noise
+            samples.append(sample)
+        return samples
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
         return (

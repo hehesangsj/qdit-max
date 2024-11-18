@@ -31,7 +31,6 @@ from qdit.datautils import *
 from collections import defaultdict
 from qdit.modelutils import quantize_model, quantize_model_gptq,  add_act_quant_wrapper
 
-
 from tqdm import tqdm
 import torch
 import torch.nn as nn
