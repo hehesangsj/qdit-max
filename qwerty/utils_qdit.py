@@ -109,8 +109,8 @@ def init_data(args, rank, logger):
     )
     loader = DataLoader(
         dataset,
-        batch_size=args.batch_size,
-        # batch_size=int(args.global_batch_size // dist.get_world_size()),
+        # batch_size=args.batch_size,
+        batch_size=int(args.global_batch_size // dist.get_world_size()),
         shuffle=False,
         sampler=sampler,
         num_workers=args.num_workers,
@@ -217,7 +217,6 @@ def parse_option():
     parser.add_argument("--model", type=str, choices=list(DiT_models.keys()), default="DiT-XL/2")
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="mse")
     parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
-    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument("--cfg-scale", type=float, default=1.5)
     parser.add_argument("--num-sampling-steps", type=int, default=50)

@@ -39,7 +39,7 @@ def generate_compensation_model(args):
     scales = defaultdict(lambda: None)
     q_model = add_act_quant_wrapper(deepcopy(model), device=device, args=args, scales=scales)
     if args.qwerty_ckpt:
-        gptq_dataloader = get_loader(args.calib_data_path, nsamples=1)
+        gptq_dataloader = get_loader(args.calib_data_path, nsamples=256)
     else:
         gptq_dataloader = get_loader(args.calib_data_path, nsamples=256)
     q_model = quantize_model_gptq(q_model, device=device, args=args, dataloader=gptq_dataloader)
@@ -153,7 +153,7 @@ def generate_compensation_model(args):
         q_model.eval()
         q_model.cuda()
         latent_size = args.image_size // 8
-        diffusion_gen = dit_generator('50', latent_size=latent_size, device=device)
+        diffusion_gen = dit_generator(timestep_respacing=str(args.num_sampling_steps), latent_size=latent_size, device=device)
         if not os.path.exists(f"{experiment_dir}/gen"):
             os.makedirs(f"{experiment_dir}/gen")
         diffusion_gen.forward_val(vae, [model.forward_with_cfg, q_model_qdit.forward_with_cfg, q_model.forward_with_cfg], cfg=True, name=f"{experiment_dir}/gen", logger=logger, args=args)

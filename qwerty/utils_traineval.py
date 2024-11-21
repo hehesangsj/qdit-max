@@ -42,8 +42,10 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
     random.seed(seed)
 
     # n = args.batch_size
-    n = args.per_proc_batch_size
-    global_batch_size = n * dist.get_world_size()
+    # n = args.per_proc_batch_size
+    # global_batch_size = n * dist.get_world_size()
+    global_batch_size = args.global_batch_size
+    n = global_batch_size // dist.get_world_size()
     rank = dist.get_rank()
     device = rank % torch.cuda.device_count()
     latent_size = args.image_size // 8
@@ -80,9 +82,12 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
             model_kwargs = dict(y=y)
             sample_fn = model_pq
             # sample_fn = model_pq.forward
-
+        
         # Sample images:
-        samples = diffusion.p_sample_loop(
+        # samples = diffusion.p_sample_loop(
+        #     sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
+        # )
+        samples = diffusion.ddim_sample_loop(
             sample_fn, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
         )
         if using_cfg:
@@ -108,21 +113,43 @@ def sample(args, model_pq, vae, diffusion, sample_folder_dir):
 
 def sample_fid(args, model, vae, diffusion, sample_folder_dir):
     # Create folder to save samples:
-    seed_everything(args.seed)
+    seed = dist.get_rank()
+    seed_everything(seed)
     device = next(model.parameters()).device
     using_cfg = args.cfg_scale > 1.0
     os.makedirs(sample_folder_dir, exist_ok=True)
     print(f"Saving .png samples at {sample_folder_dir}")
 
-    # Figure out how many samples we need to generate on each GPU and how many iterations we need to run:
-    n = args.batch_size
+    # # Figure out how many samples we need to generate on each GPU and how many iterations we need to run:
+    # n = args.batch_size
+    # # To make things evenly-divisible, we'll sample a bit more than we need and then discard the extra samples:
+    # total_samples = int(math.ceil(args.num_fid_samples / n) * n)
+    # print(f"Total number of images that will be sampled: {total_samples}")
+    # iterations = int(total_samples // n)
+    # pbar = range(iterations)
+    # pbar = tqdm(pbar)
+    # total = 0
+
+    global_batch_size = args.global_batch_size
+    n = global_batch_size // dist.get_world_size()
+    rank = dist.get_rank()
+    device = rank % torch.cuda.device_count()
+    using_cfg = args.cfg_scale > 1.0
+    # if rank == 0:
+    os.makedirs(sample_folder_dir, exist_ok=True)
+    print(f"Saving .png samples at {sample_folder_dir}")
     # To make things evenly-divisible, we'll sample a bit more than we need and then discard the extra samples:
-    total_samples = int(math.ceil(args.num_fid_samples / n) * n)
-    print(f"Total number of images that will be sampled: {total_samples}")
-    iterations = int(total_samples // n)
+    total_samples = int(math.ceil(args.num_fid_samples / global_batch_size) * global_batch_size)
+    if rank == 0:
+        print(f"Total number of images that will be sampled: {total_samples}")
+    assert total_samples % dist.get_world_size() == 0, "total_samples must be divisible by world_size"
+    samples_needed_this_gpu = int(total_samples // dist.get_world_size())
+    assert samples_needed_this_gpu % n == 0, "samples_needed_this_gpu must be divisible by the per-GPU batch size"
+    iterations = int(samples_needed_this_gpu // n)
     pbar = range(iterations)
-    pbar = tqdm(pbar)
+    pbar = tqdm(pbar) if rank == 0 else pbar
     total = 0
+
     for _ in pbar:
         # Sample inputs:
         z = torch.randn(n, model.in_channels, model.input_size, model.input_size, device=device)
@@ -150,12 +177,17 @@ def sample_fid(args, model, vae, diffusion, sample_folder_dir):
 
         # Save samples to disk as individual .png files
         for i, sample in enumerate(samples):
-            index = i + total
+            # index = i + total
+            index = i * dist.get_world_size() + rank + total
             Image.fromarray(sample).save(f"{sample_folder_dir}/{index:06d}.png")
-        total += n
+        total += global_batch_size
 
-    create_npz_from_sample_folder(sample_folder_dir, args.num_fid_samples)
-    print("Done.")
+    dist.barrier()
+    if rank == 0:
+        create_npz_from_sample_folder(sample_folder_dir, args.num_fid_samples)
+        print("Done.")
+    dist.barrier()
+    dist.destroy_process_group()
 
 
 class dit_generator:
@@ -207,7 +239,7 @@ class dit_generator:
         self.alphas_cumprod = np.cumprod(alphas, axis=0)
 
     def forward_val(self, vae, models, cfg=False, name="sample_pq", args=None, logger=None):
-        class_labels = [500, 501, 502, 503, 504, 505, 506, 507]
+        class_labels = [(i+380) for i in range(8)]
         # class_labels = [random.randint(0, 1000) for _ in range(8)]
         z, model_kwargs = self.pre_process(class_labels, cfg=cfg, args=args)
 
